@@ -19,20 +19,20 @@ alias ig=invoke-global
 
 3. Add autocomplete scripts to your zsh profile:
 ```
-    # Invoke completions
+# Invoke completions
 _complete_invoke() {
-collection_arg=''
-if [[ "${words}" =~ "(-c|--collection) [^ ]+" ]]; then
-collection_arg=$MATCH
-fi
-reply=( $(invoke ${=collection_arg} --complete -- ${words}) )
+    collection_arg=''
+    if [[ "${words}" =~ "(-c|--collection) [^ ]+" ]]; then
+        collection_arg=$MATCH
+    fi
+    reply=( $(invoke ${=collection_arg} --complete -- ${words}) )
 }
 _complete_invoke_global() {
-collection_arg=''
-if [[ "${words}" =~ "(-c|--collection) [^ ]+" ]]; then
-collection_arg=$MATCH
-fi
-reply=( $(invoke-global ${=collection_arg} --complete -- ${words}) )
+    collection_arg=''
+    if [[ "${words}" =~ "(-c|--collection) [^ ]+" ]]; then
+        collection_arg=$MATCH
+    fi
+    reply=( $(invoke-global ${=collection_arg} --complete -- ${words}) )
 }
 compctl -K _complete_invoke + -f invoke inv
 compctl -K _complete_invoke_global + -f invoke-global ig
