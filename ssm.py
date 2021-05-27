@@ -1,5 +1,6 @@
 from invoke import task
 import json
+from shlex import quote
 
 
 JSON_ENV = {'AWS_DEFAULT_OUTPUT': 'json', 'AWS_PAGER': ''}
@@ -16,7 +17,7 @@ def _get(c, name, decrypt=False, profile=None):
     r = c.run(
         f'aws ssm get-parameter --name "{name}" '
         f'{"--with-decryption" if decrypt else ""} '
-        f'{f"--profile {profile}" if profile else ""}',
+        f'{f"--profile {quote(profile)}" if profile else ""}',
         env=JSON_ENV, hide=True)
     if not r.ok:
         raise RuntimeError(r.stderr)
@@ -32,14 +33,15 @@ def get(c, name, decrypt=False, profile=None):
 
 def _get_by_path(c, path, decrypt=False, profile=None):
     r = c.run(
-        f'aws ssm get-parameters-by-path --path "{path}" --recursive '
+        f'aws ssm get-parameters-by-path --path {quote(path)} --recursive '
         f'{"--with-decryption" if decrypt else ""} '
-        f'{f"--profile {profile}" if profile else ""}',
+        f'{f"--profile {quote(profile)}" if profile else ""}',
         env=JSON_ENV, hide=True)
     if not r.ok:
         raise RuntimeError(r.stderr)
 
-    return json.loads(r.stdout)['Parameters']
+    params = json.loads(r.stdout)['Parameters']
+    return sorted(params, key=lambda p: p['Name'])
 
 
 @task
@@ -48,6 +50,7 @@ def get_all(c, path, values=False, decrypt=False, profile=None):
     if not params:
         print('No params found')
         exit(0)
+
     for p in params:
         print(f'{p["Name"]} ({p["Type"]})' +
               (f' = {p["Value"]}' if values or decrypt else ''))
@@ -66,15 +69,15 @@ def copy(c, src, dest, overwrite=False, src_profile=None, dest_profile=None):
     _confirm()
 
     print(f'\nput-parameter: {dest}')
-    c.run(f'aws ssm put-parameter --name "{dest}" '
-          f'--type "{param["Type"]}" --value "{param["Value"]}" '
+    c.run(f'aws ssm put-parameter --name {quote(dest)} '
+          f'--type {quote(param["Type"])} --value {quote(param["Value"])} '
           f'{"--overwrite" if overwrite else "--no-overwrite"} '
-          f'{f"--profile {dest_profile}" if dest_profile else ""}',
+          f'{f"--profile {quote(dest_profile)}" if dest_profile else ""}',
           env=YAML_ENV)
 
 
 @task
-def copy_all(c, path, search, replace, overwrite=False,
+def copy_all(c, path, search=None, replace=None, overwrite=False,
              src_profile=None, dest_profile=None):
     params = _get_by_path(c, path, decrypt=True, profile=src_profile)
     dest_profile = dest_profile or src_profile or None
@@ -82,11 +85,21 @@ def copy_all(c, path, search, replace, overwrite=False,
     dest_prefix = f'{dest_profile}:' if dest_profile else ''
     new_params = []
 
-    print(f'Search and replace: "{search}" -> "{replace}"')
+    if search and src_profile == dest_profile:
+        raise RuntimeError("If you don't provide --search and --replace "
+                           "the --src-profile and --dest-profile must be "
+                           "different.")
+
+    if search:
+        print(f'Search and replace: "{search}" -> "{replace}"')
+    else:
+        print(f'Copy with same names')
+    print(f'Profiles: {src_profile} -> {dest_profile}')
     print(f'Overwrite existing values: {overwrite}')
 
     for p in params:
-        new = {'Name': p['Name'].replace(search, replace),
+        new = {'Name': (p['Name'].replace(search, replace or '')
+                        if search else p['Name']),
                'Type': p['Type'], 'Value': p['Value']}
         new_params.append(new)
         print(f"Will copy: {src_prefix}{p['Name']} -> "
@@ -96,16 +109,16 @@ def copy_all(c, path, search, replace, overwrite=False,
 
     for n in new_params:
         print(f'\nput-parameter: {n["Name"]}')
-        c.run(f'aws ssm put-parameter --name "{n["Name"]}" '
-              f'--type "{n["Type"]}" --value "{n["Value"]}" '
-              f'{"--overwrite" if overwrite else "--no-overwrite"} '
-              f'{f"--profile {dest_profile}" if dest_profile else ""}',
+        c.run(f"aws ssm put-parameter --name {quote(n['Name'])} "
+              f"--type {quote(n['Type'])} --value {quote(n['Value'])} "
+              f"{'--overwrite' if overwrite else '--no-overwrite'} "
+              f'{f"--profile {quote(dest_profile)}" if dest_profile else ""}',
               env=YAML_ENV)
 
 
 @task
-def delete_all(c, path):
-    params = _get_by_path(c, path)
+def delete_all(c, path, profile=None):
+    params = _get_by_path(c, path, profile=profile)
     delete_names = []
 
     for p in params:
@@ -116,4 +129,6 @@ def delete_all(c, path):
 
     for name in delete_names:
         print(f'delete-parameter: {name}')
-        c.run(f'aws ssm delete-parameter --name "{name}"', env=YAML_ENV)
+        c.run(f'aws ssm delete-parameter --name {quote(name)} '
+              f'{f"--profile {quote(profile)}" if profile else ""}',
+              env=YAML_ENV)
